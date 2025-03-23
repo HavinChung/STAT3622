@@ -1,0 +1,279 @@
+---
+title: "STAT3622 Assignment2"
+author: "Havin Chung (3035729772)"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dslabs)
+library(ggplot2)
+library(dplyr)
+library(nycflights13)
+library(ggExtra)
+library(glmnet)
+library(MASS)
+library(scales)
+library(tidyr)
+library(lubridate)
+```
+
+# Question 1
+
+First, to remove the norm constraint \( \| \boldsymbol{w} \| = 1 \), we rescale the parameters. Define \( \boldsymbol{w}' = \frac{\boldsymbol{w}}{M} \) and \( b' = \frac{b}{M} \), where \( M > 0 \) since we are maximizing a positive margin. Since \( \| \boldsymbol{w} \| = 1 \), the norm of the rescaled weight vector is:
+
+\[
+\| \boldsymbol{w}' \| = \left\| \frac{\boldsymbol{w}}{M} \right\| = \frac{\| \boldsymbol{w} \|}{M} = \frac{1}{M}
+\]
+
+Substitute \( \boldsymbol{w} = M \boldsymbol{w}' \) and \( b = M b' \) into the constraint:
+
+\[
+y_i \left( (M \boldsymbol{w}')^\top \boldsymbol{x}_i + M b' \right) \geq M (1 - \xi_i)
+\]
+
+Divide both sides by \( M \):
+
+\[
+y_i \left( \boldsymbol{w}'^\top \boldsymbol{x}_i + b' \right) \geq 1 - \xi_i
+\]
+
+For the slack variables, we define \( \xi_i' = \xi_i \). \( \sum_i \xi_i \leq C \) remains unchanged since \( \xi_i' = \xi_i \). However, the objective changes to maximizing \( M \) is equivalent to minimizing \( \frac{1}{M} \), which is \( \| \boldsymbol{w}' \| \). Thus, the problem becomes like:
+
+\[
+\min_{\boldsymbol{w}', b'} \| \boldsymbol{w}' \| \quad \text{subject to} \quad y_i (\boldsymbol{w}'^\top \boldsymbol{x}_i + b') \geq 1 - \xi_i', \quad \xi_i' \geq 0, \quad \sum_i \xi_i' \leq C
+\]
+
+For the **hard-margin SVM**,where \( \xi_i = 0 \), can be simplified to:
+
+\[
+\min_{\boldsymbol{w}, b} \| \boldsymbol{w} \| \quad \text{subject to} \quad y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b) \geq 1
+\]
+
+As \( \boldsymbol{w}' \) and \( b' \) are just scaled versions of \( \boldsymbol{w} \) and \( b \).
+
+For the **soft-margin SVM**, we can start with the standard form:
+
+\[
+\min_{\boldsymbol{w}, b} \frac{1}{2} \| \boldsymbol{w} \|^2 + C \sum_i \xi_i \quad \text{subject to} \quad y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b) \geq 1 - \xi_i, \quad \xi_i \geq 0
+\]
+
+The term \( \frac{1}{2} \| \boldsymbol{w} \|^2 \) comes from the fact that minimizing \( \| \boldsymbol{w} \| \) is equivalent to minimizing \( \| \boldsymbol{w} \|^2 \), and the factor \( \frac{1}{2} \) is a convention for optimization convenience.
+
+The slack variable \( \xi_i \) measures the margin violation. If \( y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b) \geq 1 \), then \( \xi_i = 0 \). If \( y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b) < 1 \), then \( \xi_i = 1 - y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b) \). Which is exactly the hinge loss:
+
+\[
+(1 - y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b))_+ = \max(0, 1 - y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b))
+\]
+
+Thus, \( \xi_i = (1 - y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b))_+ \) and substituting this into the objective:
+
+\[
+\min_{\boldsymbol{w}, b} \frac{1}{2} \| \boldsymbol{w} \|^2 + C \sum_i (1 - y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b))_+
+\]
+
+This matches the given final penalized form:
+
+\[
+\min_{\boldsymbol{w}, b} \sum_{i=1}^n (1 - y_i (\boldsymbol{w}^\top \boldsymbol{x}_i + b))_+ + \lambda \| \boldsymbol{w} \|^2
+\]
+
+
+# Question 2
+
+## Density plot
+
+```{r}
+data(heights)
+ggplot(heights, aes(x = height, fill = sex)) + 
+  geom_density(alpha = 0.5) + 
+  labs(title = "Density Plot", x = "Height", y = "Density", fill = "Sex")
+```
+
+## eCDF plot
+
+```{r}
+ggplot(heights, aes(x = height, color = sex)) + 
+  stat_ecdf() + 
+  labs(title = "eCDF Plot", x = "Height", y = "Cumulative proportion", color = "Sex")
+```
+
+- **Density Plot**: Emphasizes the shape, peak, and spread (variability) of the distributions, which helps compare the overall height profiles of males and females.
+
+- **eCDF Plot**: Focuses on cumulative proportions and quantiles (e.g., median, where the curve hits 0.5), making it easier to compare the fraction of each group below a given height.
+
+# Question 3
+```{r}
+flights_sample <- flights %>% na.omit() %>% sample_frac(0.1)
+
+ggplot(flights_sample, aes(x = dep_delay, y = arr_delay)) +
+  geom_point(size = 0.5, alpha = 0.1) + 
+  labs(title = "Scatterplot of Arrival Delay vs. Departure Delay (10% Sample)",
+       x = "Departure Delay (minutes)",
+       y = "Arrival Delay (minutes)") +
+  theme_minimal()
+```
+
+**Comment:**
+
+The scatterplot shows a strong positive relationship between departure and arrival delays: flights with longer departure delays tend to have longer arrival delays. Most points cluster near the origin (small or no delays), but there’s a clear linear trend along the line, indicating that departure delays often translate directly into arrival delays. Some flights have negative delays (early departures/arrivals), and there are outliers with very large delays (e.g., > 500 minutes).
+
+```{r}
+new_flights_sample <- flights_sample %>% dplyr::filter(dep_delay <= 30)
+
+p <- ggplot(new_flights_sample, aes(x = dep_delay, y = arr_delay)) + 
+  geom_point(size = 0.5, alpha = 0.1, position = position_jitter(width = 0.5, height = 0.5)) + 
+  labs(title = "Scatterplot of Arrival Delay against Departure Delay up to 30 minutes",
+       x = "Departure delay (minutes)",
+       y = "Arrival delay (minutes)")
+p
+```
+
+```{r}
+ggplot(new_flights_sample, aes(x = dep_delay, fill = "Departure Delay")) + 
+  geom_density(aes(x = arr_delay, fill = "Arrival Delay"), alpha = 0.5) + geom_density(alpha = 0.5) + 
+  labs(title = "Density plot of arrival delay and departure delay", x = "Delay (minutes)", y = "Density")
+```
+
+**Comment:**
+
+The scatterplot shows a clear linear correlation between departure and arrival delays, with most data points clustering on the left, indicating that flights with departure delays of up to 30 minutes often have minimal delays or arrive early (negative delay values); to support this, I also created a density plot to visually represent the distribution of both delays.
+
+```{r}
+p <- p + geom_density_2d_filled(aes(x = dep_delay, y = arr_delay), 
+                                       contour = TRUE, 
+                                       alpha = 0.5, 
+                                       show.legend = FALSE)
+
+ggMarginal(p, type = "density", margins = "both", size = 5, fill = "gray")
+```
+
+**Comment:**
+
+We can also see that most flights depart and arrive earlier than scheduled, with departure delays showing slightly more variation than arrival delays.
+
+# Question 4
+
+## Loading the data:
+
+```{r}
+data <- read.table("big8.txt", header = TRUE, sep=' ')
+```
+
+## (a)
+
+### (i) Ordinary least squares:
+
+```{r}
+ols_model <- lm(sprtrn~ RETX, data = data)
+summary(ols_model)
+```
+
+
+### (ii) Lasso:
+
+```{r}
+x <- as.matrix(data[, -c(1:3,11)])
+target <- data$sprtrn
+
+cv_lasso <- cv.glmnet(x, target, alpha = 1, nfolds = 10)
+
+optimal_lambda_value <- cv_lasso$lambda.min
+
+trained_lasso <- glmnet(x, target, alpha = 1, lambda = optimal_lambda_value)
+
+coef(trained_lasso)
+```
+
+### (iii) Ridge regression
+
+```{r}
+x <- as.matrix(data[, -c(1:3,11)])
+target <- data$sprtrn
+
+cv_ridge <- cv.glmnet(x, target, alpha = 0, nfolds = 10)
+
+optimal_lambda_value <- cv_ridge$lambda.min
+rr <- glmnet(x, target, alpha = 0, lambda = optimal_lambda_value)
+
+coef(rr)
+```
+
+## (b)
+
+```{r}
+plot(cv_lasso)
+```
+
+The Lasso regression model yields an optimal lambda value of `r format(optimal_lambda_value, scientific = FALSE)`, with the results indicating five non-zero coefficients. According to the output of `r coef(trained_lasso)`, the coefficients for *PRC* and *ewretx* are not shown, as Lasso regression likely shrunk them to zero due to their lack of significance in the model.
+
+# Question 5
+
+```{r}
+nikkei_data <- read.table("nikkei_daily.txt", header = TRUE)
+sp_data <- read.table("sp_daily.txt", header = TRUE)
+ex_data <- read.table("ex_daily.txt", header = TRUE)
+```
+
+## (a)
+```{r}
+# Changing the format
+nikkei_data$Date <- format(as.Date(nikkei_data$Date, format = "%d-%b-%Y"), "%Y%m%d")
+ex_data$DATE <- format(as.Date(ex_data$DATE, format = "%Y-%m-%d"), "%Y%m%d")
+
+# Output Variable
+nikkei_data <- mutate(nikkei_data, gi = c(NA, 
+                                          ifelse((diff(nikkei_data$Value)) > 0, 1, -1)))
+ex_data <- mutate(ex_data, xi2 = c(NA, 
+                                     diff(log(lag(ex_data$VALUE, 1)))))
+
+# Merge
+data <- merge(nikkei_data, sp_data, by.x="Date", by.y="caldt") %>%
+  rename_at("sprtrn", ~"xi1")
+data <- merge(data, ex_data, by.x="Date", by.y="DATE")
+data <- data[,c("Date","gi", "xi1", "xi2")]
+data <- data[data$Date >= "20050103" & data$Date <= "20071231", ]
+
+head(data)
+```
+
+## (b)
+
+```{r}
+ggplot(data, aes(x = xi1, y = xi2, color = factor(gi))) +
+  geom_point() +
+  labs(x = "S&P 500 Log Return",
+       y = "Change in Log Exchange Rate",
+       title = "Scatter Plot of Predictors for Nikkei 225 Direction") +
+  theme_minimal()
+```
+
+## (c)
+
+### (i) Logistic Regression
+
+```{r}
+new_data <- data
+new_data$gi[new_data$gi == -1] <- 0
+
+lr <- glm(gi ~ xi1 + xi2, data = new_data, family = binomial)
+summary(lr)
+lr_pred <- predict(lr, type = "response")
+lr_class <- ifelse(lr_pred > 0.5, 1, -1)
+
+lr_error <- mean(lr_class != new_data$gi)
+cat("Logistic Regression Classification Error Rate:", lr_error, "\n")
+```
+
+### (ii) Linear Discriminant Analysis
+```{r}
+lda_model <- lda(gi ~ xi1 + xi2, data = new_data)
+lda_model
+
+lda_pred <- predict(lda_model)
+lda_class <- lda_pred$class
+
+lda_error <- mean(lda_class != new_data$gi)
+cat("LDA Classification Error Rate:", lda_error, "\n")
+```
+
